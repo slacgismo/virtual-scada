@@ -1,7 +1,9 @@
 import numpy as np
 import pandas as pd
 import sys
+
 sys.path.insert(0, 'C:/Users/Serhan/Documents/SLACwork/VADER-Analytics/mlpowerflow')
+
 import forward_mlpf
 import inverse_mlpf
 from sklearn.preprocessing import StandardScaler
@@ -11,6 +13,15 @@ from sklearn.linear_model import LinearRegression
 def removeValues(data, percentage, inplace = False):
     """
     Removes individual values in a pandas dataframe with probabilty percentage
+
+    Inputs:
+        data: pandas dataframe to remove values from
+        percentage: probability with which to remove an individual value
+        inplace: whether to modify the data in place or not, false by default
+
+    Output:
+        dataRemoved: the corresponding data with the corresponding values removed
+
     """
 
     if inplace:
@@ -31,6 +42,15 @@ def removeRows(data, rowPercentage, colPercentage = 1, inplace = False):
     """
     Selects rows with probability rowPercentage, then for each column removes that column
     from that row with probability ColPercentage
+
+    Inputs:
+        data: pandas dataframe to remove values from
+        rowPercentage: probability with which to select a row to remove data from
+        colPercentage: probability with which to select a column to remove data from, 1 by default
+        inplace: whether to modify the data in place or not, false by default
+
+    Output:
+        dataRemoved: the corresponding data with the corresponding values removed
     """
 
     if inplace:
@@ -52,6 +72,12 @@ def nonNullIntersection(dataList):
     """
     Takes a list of dataframes and returns the list of dataframes with rows that contain a null value in
     any dataframe removed. This is so that the row can be used for training ML Powerflow
+
+    Input:
+        dataList: a list of pandas dataframes of the same number of rows
+    Output:
+        dataListIntersection: a list of pandas dataframes with the rows that contain a null values
+        in any row missing.
     """
 
     masks = []
@@ -63,10 +89,12 @@ def nonNullIntersection(dataList):
     for mask in masks[1:]:
         finalMask = finalMask & mask
 
-    for x in range(len(dataList)):
-        dataList[x] = dataList[x][finalMask]
+    dataListIntersection = []
 
-    return dataList
+    for x in range(len(dataList)):
+        dataListIntersection.append(dataList[x][finalMask])
+
+    return dataListIntersection
 
 def fillValuesMLPFForward(p, q, v, a, max_iter = 1e3, C_set = [1], eps_set = [1e-3]):
     """
@@ -76,6 +104,18 @@ def fillValuesMLPFForward(p, q, v, a, max_iter = 1e3, C_set = [1], eps_set = [1e
     Does this by first filtering out all rows that can't be trained on.
     Then train the mlpowerflow model on that data.
     Then fill in the missing data
+
+    Input:
+        p: the real power matrix
+        q: the reactive power matrix
+        v: the voltage matrix
+        a: the phase angle matrix
+        max_iter: the maximum number of steps to run for training the model
+        C_set: the set of C values to try while training the model
+        eps_set: the set of epsilon values to try while training the model
+    Ouput:
+        pFilled: the real power matrix with missing values filled in
+        qFilled: the reactive power matrix with missing values filled in
     """
     import warnings
     warnings.filterwarnings("ignore")
@@ -98,7 +138,7 @@ def fillValuesMLPFForward(p, q, v, a, max_iter = 1e3, C_set = [1], eps_set = [1e
 
     model.fit_svr(C_set, eps_set, max_iter)
     model.test_error_svr()
-    print(model.scaled_total_rmse, model.mean_rmse)
+    #print(model.scaled_total_rmse, model.mean_rmse)
 
     # Finally we fill all the missing data
     voltage = pd.concat([v,a],axis=1).values
@@ -108,7 +148,7 @@ def fillValuesMLPFForward(p, q, v, a, max_iter = 1e3, C_set = [1], eps_set = [1e
     scaler_x.fit(model.X_train)
 
     for j in range(num_samples):
-        if np.isnan(np.sum(power[j])):
+        if np.isnan(np.sum(power[j]))and not np.isnan(np.sum(voltage[j])):
             vj = voltage[j][0:30]
             aj = voltage[j][30:]
             u = vj * np.cos(aj)  # Make sure a is in radians
@@ -126,7 +166,6 @@ def fillValuesMLPFForward(p, q, v, a, max_iter = 1e3, C_set = [1], eps_set = [1e
                 if np.isnan(power[j,i]):
                     pred = predictions[i]
                     scaled = model.scale_back_sample_y(pred, i)
-                    print(pred, scaled)
 
                     power[j,i] = scaled
 
@@ -143,6 +182,18 @@ def fillValuesMLPFInverse(p, q, v, a, max_iter = 1e3, C_set = [1], eps_set = [1e
         Does this by first filtering out all rows that can't be trained on.
         Then train the mlpowerflow model on that data.
         Then fill in the missing data
+
+    Input:
+        p: the real power matrix
+        q: the reactive power matrix
+        v: the voltage matrix
+        a: the phase angle matrix
+        max_iter: the maximum number of steps to run for training the model
+        C_set: the set of C values to try while training the model
+        eps_set: the set of epsilon values to try while training the model
+    Ouput:
+        vFilled: the voltage matrix with missing values filled in
+        aFilled: the phasne angle matrix with missing values filled in
     """
     import warnings
     warnings.filterwarnings("ignore")
@@ -162,7 +213,7 @@ def fillValuesMLPFInverse(p, q, v, a, max_iter = 1e3, C_set = [1], eps_set = [1e
     model.scale_data()
     model.fit_svr(C_set, eps_set, max_iter)
     model.test_error_svr()
-    print(model.scaled_total_rmse, model.mean_rmse)
+    #print(model.scaled_total_rmse, model.mean_rmse)
 
     power = pd.concat([p, q], axis=1).values
     voltage = pd.concat([v, a], axis=1).values
@@ -171,16 +222,15 @@ def fillValuesMLPFInverse(p, q, v, a, max_iter = 1e3, C_set = [1], eps_set = [1e
     scaler_x.fit(model.X_train)
 
     for j in range(num_samples):
-        if np.isnan(np.sum(voltage[j])):
+        if np.isnan(np.sum(voltage[j])) and not np.isnan(np.sum(power[j])):
             XScaled = scaler_x.transform(power[j].reshape(1,-1))
             predictions = model.apply_svr(XScaled)
 
             for i in range(num_bus):
                 if np.isnan(voltage[j, i]):
 
-                    if np.isnan(voltage[j, i]):
-                        scaled = model.scale_back_sample_y(predictions[i], i)
-                        voltage[j, i] = scaled
+                    scaled = model.scale_back_sample_y(predictions[i], i)
+                    voltage[j, i] = scaled
 
 
 
@@ -197,6 +247,15 @@ def fillValuesLRForward(p, q, v, a):
         Does this by first filtering out all rows that can't be trained on.
         Then train the model on that data.
         Then fill in the missing data
+
+    Input:
+        p: the real power matrix
+        q: the reactive power matrix
+        v: the voltage matrix
+        a: the phase angle matrix
+    Ouput:
+        pFilled: the real power matrix with missing values filled in
+        qFilled: the reactive power matrix with missing values filled in
     """
 
 
@@ -230,7 +289,7 @@ def fillValuesLRForward(p, q, v, a):
     voltage = pd.concat([v, a], axis=1).values
 
     for j in range(num_samples):
-        if np.isnan(np.sum(power[j])):
+        if np.isnan(np.sum(power[j])) and not np.isnan(np.sum(voltage[j])):
             vj = voltage[j][0:30]
             aj = voltage[j][30:]
             u = vj * np.cos(aj)  # Make sure a is in radians
@@ -263,6 +322,15 @@ def fillValuesLRInverse(p, q, v, a):
         Does this by first filtering out all rows that can't be trained on.
         Then train the model on that data.
         Then fill in the missing data
+
+    Input:
+        p: the real power matrix
+        q: the reactive power matrix
+        v: the voltage matrix
+        a: the phase angle matrix
+    Ouput:
+        vFilled: the real power matrix with missing values filled in
+        aFilled: the reactive power matrix with missing values filled in
     """
 
     dataNonNull = nonNullIntersection([p, q, v, a])
@@ -293,10 +361,10 @@ def fillValuesLRInverse(p, q, v, a):
     voltage = pd.concat([v, a], axis=1).values
 
     for j in range(num_samples):
-        if np.isnan(np.sum(voltage[j])):
+        if np.isnan(np.sum(voltage[j])) and not np.isnan(np.sum(power[j])):
 
 
-            power_scaled = scaler_x.transform(power[j])
+            power_scaled = scaler_x.transform(power[j].reshape(-1,1))
             predictions = model.predict(power_scaled)
 
             for i in range(2 * num_bus):

@@ -363,7 +363,6 @@ def fillValuesLRInverse(p, q, v, a):
     for j in range(num_samples):
         if np.isnan(np.sum(voltage[j])) and not np.isnan(np.sum(power[j])):
 
-
             power_scaled = scaler_x.transform(power[j].reshape(1,-1))
             predictions = model.predict(power_scaled)
 
